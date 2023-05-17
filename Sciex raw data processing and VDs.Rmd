@@ -1,0 +1,144 @@
+---
+title: "VDs"
+output: html_document
+date: "2023-05-16"
+---
+
+#1.Prepare Raw Sciex Data
+```{r}
+library(dplyr)
+library(tidyverse)
+library(conflicted)
+
+#load df
+df <- read_csv(file.choose())
+
+#remove unnecessary columns
+df <- df[ -c(1,3)]
+
+#cut string after closing bracket, remove opening bracket
+for ( col in 2:ncol(df)){
+  colnames(df)[col] <-  sub("\\).*", "", colnames(df)[col])
+}
+for ( col in 2:ncol(df)){
+  colnames(df)[col] <-  sub("\\(", ".", colnames(df)[col])
+}
+
+#change "/" to "."
+for ( col in 2:ncol(df)){
+  colnames(df)[col] <-  sub(":", ".", colnames(df)[col])
+}
+for ( col in 2:ncol(df)){
+  colnames(df)[col] <-  sub(":", ".", colnames(df)[col])
+}
+
+#Change "/" to "."
+for ( col in 2:ncol(df)){
+  colnames(df)[col] <-  sub("/", "_", colnames(df)[col])
+}
+
+##Make df long format with dplyr
+dflong <- df %>% 
+  pivot_longer(cols = CE.14.0:TAG.60.12_FA22.6, 
+               values_transform = as.numeric,
+               names_to = "lipids", values_to = "value")
+
+dflong$lipids <- as.factor(dflong$lipids)
+
+##Summarise with Avg, SD, CV
+statslong <- dflong %>% 
+  group_by(sample_id, lipids) %>%
+  summarise(avg = mean(value),
+            SD = sd(value),
+            cv = (SD/avg)*100)
+
+#view no. reproducible lipids per extraction solvent
+extracion_summaries <- statslong %>% dplyr::filter(cv <30) %>% count(sample_id)
+
+#create df with reproducible lipids
+good <- statslong %>% dplyr::filter(cv <30)
+
+#Create dfs for top 3 extraction solvents
+extraction1 <- good %>% dplyr::filter(sample_id == "Ex1")
+Ex_1 <- extraction1[ -c(1,3,4,5)]
+names(Ex_1)[names(Ex_1) == 'lipids'] <- 'Ex_1'
+
+
+extraction2 <- good %>% dplyr::filter(sample_id == "Ex2")
+Ex_2 <- extraction2[ -c(1,3,4,5)]
+names(Ex_2)[names(Ex_2) == 'lipids'] <- 'Ex_2'
+
+extraction9 <- good %>% dplyr::filter(sample_id == "Ex9")
+Ex_9 <- extraction9[ -c(1,3,4,5)]
+names(Ex_9)[names(Ex_9) == 'lipids'] <- 'Ex_9'
+```
+
+
+#2.Create Venn Diagrams
+```{r}
+
+#INSTALL PACKAGE TO USE WITH VENNDIR - labelled (https://github.com/jmw86069/venndir)
+remotes::install_github("jmw86069/venndir")
+install.packages("eulerr")
+
+library(eulerr)
+library(venndir)
+
+if (!require("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+BiocManager::install("S4Vectors")
+BiocManager::install("IRanges")
+
+
+#Create a df suitable for the Venndir package/function
+##find max length of groups you want to compare
+n <- max(length(Ex_1$Ex_1), length(Ex_2$Ex_2), length(Ex_9$Ex_9))
+
+
+##join the columns of the group, pasting NAs in any differences between column lengths
+VD_data <- data.frame(Ex_1$Ex_1[1:n],Ex_2$Ex_2[1:n],Ex_9$Ex_9[1:n])
+
+##rename column headers
+names(VD_data)[names(VD_data) == 'Ex_1.Ex_1.1.n.'] <- 'Ex_1'
+names(VD_data)[names(VD_data) == 'Ex_2.Ex_2.1.n.'] <- 'Ex_2'
+names(VD_data)[names(VD_data) == 'Ex_9.Ex_9.1.n.'] <- 'Ex_9'
+
+#set up groups
+
+Ex_1 <- c(VD_data$Ex_1) 
+Ex_2 <- c(VD_data$Ex_2) 
+Ex_9 <- c(VD_data$Ex_9)
+x <- list(Ex_1 = Ex_1, Ex_2 = Ex_2, Ex_9 = Ex_9)
+
+#non-proportional with all lipids as text
+par(mfrow=c(1, 2))
+venndir(x,
+        main="Non-proportional circles",
+        #proportional=TRUE,
+        overlap_type="overlap",
+        #show_segments=FALSE,
+        label_preset="main items",
+        label_style="lite_box",
+        show_items="item",
+        item_cex=0.9)
+
+#proportional with all lipids as text
+venndir(x,
+        main="Proportional circles",
+        proportional=TRUE,
+        overlap_type="overlap",
+        #show_segments=FALSE,
+        label_preset="main items",
+        label_style="lite_box",
+        show_items="item",
+        item_cex=0.1)
+
+#proportional with number of lipids shared
+venndir(x,
+        proportional=TRUE,
+        inside_percent_threshold=0.1,
+        overlap_type="overlap",
+        font_cex=c(1.3, 1))
+
+```
